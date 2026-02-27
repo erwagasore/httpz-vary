@@ -56,6 +56,10 @@ pub fn main() !void {
 
     try server.listen();
 }
+
+fn handleIndex(_: *httpz.Request, res: *httpz.Response) !void {
+    res.body = "Hello";
+}
 ```
 
 ## Configuration
@@ -139,8 +143,10 @@ design decisions, and rejected alternatives.
 httpz-vary/
 ├── src/root.zig              # Middleware implementation + tests
 ├── examples/basic_server.zig # Content negotiation demo
+├── docs/index.md             # Documentation index
 ├── build.zig                 # Build configuration
 ├── build.zig.zon             # Package manifest
+├── AGENTS.md                 # Repo conventions for humans + AI
 ├── DESIGN.md                 # Architecture and design decisions
 ├── LICENSE                   # MIT
 └── README.md
