@@ -4,11 +4,11 @@ const Vary = @import("httpz_vary");
 
 const PORT = 8080;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const allocator = init.gpa;
 
-    var server = try httpz.Server(void).init(allocator, .{ .port = PORT }, {});
+    var server = try httpz.Server(void).init(io, allocator, .{ .address = .localhost(PORT) }, {});
     defer server.deinit();
     defer server.stop();
 
@@ -18,7 +18,7 @@ pub fn main() !void {
         .headers = &.{"Accept"},
     });
 
-    var router = try server.router(.{ .middlewares = &.{vary} });
+    const router = try server.router(.{ .middlewares = &.{vary} });
     router.get("/greeting", getGreeting, .{});
 
     std.debug.print("listening http://localhost:{d}/\n", .{PORT});
@@ -31,9 +31,15 @@ pub fn main() !void {
 // the HTML body to an API client.
 // ---------------------------------------------------------------------------
 
-fn getGreeting(_: *httpz.Request, res: *httpz.Response) !void {
-    // In a real app you'd inspect req.header("accept") to decide.
-    // This demo always returns HTML to keep things simple.
+fn getGreeting(req: *httpz.Request, res: *httpz.Response) !void {
+    if (req.header("accept")) |accept| {
+        if (std.ascii.indexOfIgnoreCase(accept, "application/json") != null) {
+            res.content_type = .JSON;
+            res.body = "{\"message\":\"Hello\"}";
+            return;
+        }
+    }
+
     res.content_type = .HTML;
     res.body =
         \\<!DOCTYPE html>

@@ -104,8 +104,10 @@ avoids the need for per-request allocation to merge strings.
 ### Why pre-compute the value?
 
 The header names are static configuration — they don't change per request.
-Computing the comma-joined string once in `init()` means `execute()` is
-allocation-free and branch-free.
+Computing the comma-joined string once in `init()` stores the final header
+value in httpz's server arena. That gives the middleware ownership of the
+bytes for the server lifetime and keeps `execute()` allocation-free and
+branch-free.
 
 ### Why require explicit headers (no default)?
 
@@ -123,10 +125,12 @@ that `*` is the sole entry if present — mixing `*` with other header names
 is semantically meaningless and likely a configuration error.
 
 ```
-  .headers = &.{"*"}                ✓  valid — Vary: *
-  .headers = &.{"*", "Accept"}     ✗  error: WildcardMustBeAlone
-  .headers = &.{}                  ✗  error: EmptyHeaders
-  .headers = &.{"Accept", ""}      ✗  error: EmptyHeaderName
+  .headers = &.{"*"}                 ✓  valid — Vary: *
+  .headers = &.{"*", "Accept"}      ✗  error: WildcardMustBeAlone
+  .headers = &.{}                   ✗  error: EmptyHeaders
+  .headers = &.{"Accept", ""}       ✗  error: EmptyHeaderName
+  .headers = &.{"Accept Language"}  ✗  error: InvalidHeaderName
+  .headers = &.{"Accept", "accept"} ✗  error: DuplicateHeaderName
 ```
 
 ## Rejected alternatives

@@ -60,4 +60,4 @@ httpz-vary/
 
 - **Entry point**: `src/root.zig` — the entire middleware is a single file.
 - **Domain**: Vary HTTP response header middleware for the [httpz](https://github.com/karlseguin/http.zig) web framework.
-- **Tech**: Zig 0.15.2, httpz. Zero per-request allocation — header value pre-computed at init.
+- **Tech**: Zig 0.16.x, httpz. Zero per-request allocation — header value pre-computed at init.

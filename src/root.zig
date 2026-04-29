@@ -17,6 +17,24 @@
 const std = @import("std");
 const httpz = @import("httpz");
 
+const Vary = @This();
+const vary_header = "Vary";
+const separator = ", ";
+const wildcard = "*";
+
+/// Configuration errors detected before any middleware state is allocated.
+pub const ConfigError = error{
+    EmptyHeaders,
+    EmptyHeaderName,
+    InvalidHeaderName,
+    DuplicateHeaderName,
+    WildcardMustBeAlone,
+};
+
+/// Errors returned by init. Configuration errors are deterministic; OutOfMemory
+/// can occur while copying the final header value into httpz's server arena.
+pub const InitError = ConfigError || std.mem.Allocator.Error;
+
 /// Configuration for the Vary middleware.
 pub const Config = struct {
     /// Request header names to include in the Vary response header.
@@ -32,23 +50,21 @@ vary_value: []const u8,
 
 /// Initialise the middleware. Validates configuration and pre-computes the
 /// Vary header value so execute() has zero allocation overhead.
-pub fn init(config: Config, mc: httpz.MiddlewareConfig) !@This() {
-    if (config.headers.len == 0) return error.EmptyHeaders;
+pub fn init(config: Config, mc: httpz.MiddlewareConfig) InitError!Vary {
+    try validateHeaders(config.headers);
 
-    for (config.headers) |h| {
-        if (std.mem.eql(u8, h, "*")) {
-            if (config.headers.len != 1) return error.WildcardMustBeAlone;
-            return .{ .vary_value = "*" };
-        }
-        if (h.len == 0) return error.EmptyHeaderName;
+    if (std.mem.eql(u8, config.headers[0], wildcard)) {
+        return .{ .vary_value = wildcard };
     }
 
-    return .{ .vary_value = try std.mem.join(mc.arena, ", ", config.headers) };
+    // Copy into httpz's server arena so the middleware owns the bytes for the
+    // server lifetime, even if config.headers came from temporary storage.
+    return .{ .vary_value = try std.mem.join(mc.arena, separator, config.headers) };
 }
 
 /// Required by httpz middleware interface. Nothing to clean up —
 /// the pre-computed value lives in the server arena.
-pub fn deinit(_: *@This()) void {}
+pub fn deinit(_: *Vary) void {}
 
 /// Middleware execution — called by httpz for each request.
 ///
@@ -56,9 +72,44 @@ pub fn deinit(_: *@This()) void {}
 /// Per RFC 7230 §3.2.2, multiple headers with the same field name are
 /// valid and recipients combine them, so this simply adds its own `Vary`
 /// entry without inspecting or merging with existing values.
-pub fn execute(self: *const @This(), _: *httpz.Request, res: *httpz.Response, executor: anytype) !void {
-    res.header("Vary", self.vary_value);
+pub fn execute(self: *const Vary, _: *httpz.Request, res: *httpz.Response, executor: anytype) !void {
+    res.header(vary_header, self.vary_value);
     return executor.next();
+}
+
+fn validateHeaders(headers: []const []const u8) ConfigError!void {
+    if (headers.len == 0) return error.EmptyHeaders;
+
+    for (headers, 0..) |header, i| {
+        if (std.mem.eql(u8, header, wildcard)) {
+            if (headers.len != 1) return error.WildcardMustBeAlone;
+            return;
+        }
+
+        try validateHeaderName(header);
+
+        for (headers[0..i]) |previous| {
+            if (std.ascii.eqlIgnoreCase(header, previous)) {
+                return error.DuplicateHeaderName;
+            }
+        }
+    }
+}
+
+fn validateHeaderName(header: []const u8) ConfigError!void {
+    if (header.len == 0) return error.EmptyHeaderName;
+
+    for (header) |c| {
+        if (!isTokenChar(c)) return error.InvalidHeaderName;
+    }
+}
+
+fn isTokenChar(c: u8) bool {
+    return switch (c) {
+        'a'...'z', 'A'...'Z', '0'...'9' => true,
+        '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~' => true,
+        else => false,
+    };
 }
 
 // ============================================================================
@@ -153,6 +204,51 @@ test "init: single empty header name is rejected" {
 test "init: empty header name among others is rejected" {
     const headers = [_][]const u8{ "Accept", "" };
     try testing.expectError(error.EmptyHeaderName, @This().init(.{ .headers = &headers }, no_alloc_mc));
+}
+
+test "init: duplicate header names are rejected" {
+    const headers = [_][]const u8{ "Accept", "Accept" };
+    try testing.expectError(error.DuplicateHeaderName, @This().init(.{ .headers = &headers }, no_alloc_mc));
+}
+
+test "init: duplicate header names are rejected case-insensitively" {
+    const headers = [_][]const u8{ "Accept", "accept" };
+    try testing.expectError(error.DuplicateHeaderName, @This().init(.{ .headers = &headers }, no_alloc_mc));
+}
+
+test "init: invalid header name is rejected" {
+    const headers = [_][]const u8{"Accept Language"};
+    try testing.expectError(error.InvalidHeaderName, @This().init(.{ .headers = &headers }, no_alloc_mc));
+}
+
+test "init: valid HTTP token characters are accepted" {
+    var tmc = TestMc.init();
+    defer tmc.deinit();
+
+    const headers = [_][]const u8{"X-Token_123~"};
+    const mw = try @This().init(.{ .headers = &headers }, tmc.mc());
+    try testing.expectEqualStrings("X-Token_123~", mw.vary_value);
+}
+
+test "init: configured header casing is preserved" {
+    var tmc = TestMc.init();
+    defer tmc.deinit();
+
+    const headers = [_][]const u8{"HX-Request"};
+    const mw = try @This().init(.{ .headers = &headers }, tmc.mc());
+    try testing.expectEqualStrings("HX-Request", mw.vary_value);
+}
+
+test "init: header values are copied into the middleware arena" {
+    var tmc = TestMc.init();
+    defer tmc.deinit();
+
+    var header = [_]u8{ 'A', 'c', 'c', 'e', 'p', 't' };
+    const headers = [_][]const u8{header[0..]};
+    const mw = try @This().init(.{ .headers = &headers }, tmc.mc());
+
+    @memcpy(header[0..], "Cookie");
+    try testing.expectEqualStrings("Accept", mw.vary_value);
 }
 
 // -- Middleware integration --------------------------------------------------

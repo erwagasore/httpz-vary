@@ -4,12 +4,16 @@ Vary header middleware for [httpz](https://github.com/karlseguin/http.zig).
 
 Ensures caches store separate entries for responses that differ by request headers — content negotiation, encoding, language, or any custom header.
 
+Requires Zig 0.16.x.
+
+The examples use Zig 0.16's `std.process.Init` entry point to access `init.gpa` and `init.io`, matching httpz's Zig 0.16 API.
+
 ## Quickstart
 
 ```bash
 git clone git@github.com:erwagasore/httpz-vary.git
 cd httpz-vary
-zig build              # build library + example
+zig build              # build library + example with Zig 0.16.x
 zig build test         # run unit tests
 zig build run          # run example server on :8080
 ```
@@ -20,7 +24,7 @@ Add to `build.zig.zon`:
 
 ```zig
 .httpz_vary = .{
-    .url = "git+https://github.com/erwagasore/httpz-vary#v0.1.0",
+    .url = "git+https://github.com/erwagasore/httpz-vary#main",
     .hash = "...",
 },
 ```
@@ -39,11 +43,11 @@ const std = @import("std");
 const httpz = @import("httpz");
 const Vary = @import("httpz_vary");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const allocator = init.gpa;
 
-    var server = try httpz.Server(void).init(allocator, .{ .port = 8080 }, {});
+    var server = try httpz.Server(void).init(io, allocator, .{ .address = .localhost(8080) }, {});
     defer server.deinit();
     defer server.stop();
 
@@ -51,7 +55,7 @@ pub fn main() !void {
         .headers = &.{"Accept"},
     });
 
-    var router = try server.router(.{ .middlewares = &.{vary} });
+    const router = try server.router(.{ .middlewares = &.{vary} });
     router.get("/", handleIndex, .{});
 
     try server.listen();
@@ -89,6 +93,18 @@ const vary = try server.middleware(Vary, .{
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `headers` | `[]const []const u8` | *(required)* | Request header names to include in the Vary response header |
+
+Validation happens once during middleware initialization:
+
+```zig
+.headers = &.{}                   // error.EmptyHeaders
+.headers = &.{"Accept", ""}       // error.EmptyHeaderName
+.headers = &.{"Accept Language"}  // error.InvalidHeaderName
+.headers = &.{"Accept", "accept"} // error.DuplicateHeaderName
+.headers = &.{"*", "Accept"}      // error.WildcardMustBeAlone
+```
+
+The configured header casing is preserved in the emitted `Vary` value, but duplicate detection is case-insensitive because HTTP field names are case-insensitive. The middleware exposes `Vary.ConfigError` and `Vary.InitError` for callers that want to handle configuration failures explicitly.
 
 ## Why this matters
 
