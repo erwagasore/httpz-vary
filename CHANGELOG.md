@@ -1,15 +1,21 @@
 # Changelog
 
-## Unreleased
+## [1.0.0] — 2026-04-29
 
-### Changed
+### Breaking Changes
 
-- Require Zig 0.16.x and update the pinned httpz dependency to a Zig 0.16-compatible revision.
-- Update the example server to use Zig 0.16's `std.process.Init` entry point and httpz's `init.io`/`.address` server configuration.
-- Validate configured header names as HTTP field-name tokens and reject duplicates case-insensitively during initialization.
-- Preserve server-lifetime ownership of the pre-computed `Vary` value in httpz's middleware arena.
-- Expose explicit `ConfigError` and `InitError` sets for better API ergonomics.
-- Make the example's `Accept: application/json` matching case-insensitive.
+- Upgrade the package to Zig 0.16.x and the Zig 0.16-compatible httpz API.
+
+### Features
+
+- Adopt Zig 0.16 `std.process.Init`, `init.gpa`, and `init.io` in examples and documentation.
+- Expose explicit `ConfigError` and `InitError` sets for clearer middleware initialization errors.
+- Validate configured Vary header names as HTTP field-name tokens and reject duplicate names case-insensitively.
+
+### Other
+
+- Preserve server-lifetime ownership of the precomputed `Vary` value in httpz's middleware arena.
+- Update build step style, documentation, design notes, and changelog.
 
 ## [0.1.0] — 2026-02-27
 

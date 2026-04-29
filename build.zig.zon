@@ -1,6 +1,6 @@
 .{
     .name = .httpz_vary,
-    .version = "0.1.0",
+    .version = "1.0.0",
     .fingerprint = 0x6bec0b6c69dd8981,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
