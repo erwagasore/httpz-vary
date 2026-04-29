@@ -32,9 +32,12 @@ pub fn build(b: *std.Build) void {
 
     const run_example = b.addRunArtifact(example);
     run_example.step.dependOn(b.getInstallStep());
-    b.step("run", "Run the example server").dependOn(&run_example.step);
+    const run_step = b.step("run", "Run the example server");
+    run_step.dependOn(&run_example.step);
 
     // Tests
     const tests = b.addTest(.{ .root_module = mod });
-    b.step("test", "Run unit tests").dependOn(&b.addRunArtifact(tests).step);
+    const run_tests = b.addRunArtifact(tests);
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_tests.step);
 }
